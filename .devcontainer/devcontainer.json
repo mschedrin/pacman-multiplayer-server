@@ -2,6 +2,7 @@
   "build": {
     "dockerfile": "Dockerfile.opencode"
   },
+  "initializeCommand": "mkdir -p .devcontainer/home/.config/fish",
   "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
   "runArgs": ["--name", "${localWorkspaceFolderBasename}_devcontainer"],
   "mounts": [
@@ -15,8 +16,6 @@
   ],
   "containerEnv": {
     "TERM": "xterm-256color",
-    "GH_CONFIG_DIR": "${containerWorkspaceFolder}/.devcontainer/home/.config/gh",
-    "GIT_CONFIG_GLOBAL": "${containerWorkspaceFolder}/.devcontainer/home/.gitconfig",
     "IS_SANDBOX": "1"
   },
   "forwardPorts": [8000],
