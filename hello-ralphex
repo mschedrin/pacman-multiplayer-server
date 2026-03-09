@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+name=""
+
+usage() {
+    echo "Usage: $0 [--name <value>]" >&2
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --name)
+            shift
+            if [[ $# -eq 0 || "$1" == --* ]]; then
+                echo "error: --name requires a value" >&2
+                usage
+                exit 1
+            fi
+            name="$1"
+            shift
+            ;;
+        *)
+            echo "error: unknown argument: $1" >&2
+            usage
+            exit 1
+            ;;
+    esac
+done
+
+if [[ -n "$name" ]]; then
+    printf 'Hello, %s from ralphex test script\n' "$name"
+else
+    echo "Hello from ralphex test script"
+fi
