@@ -22,7 +22,7 @@ Server-authoritative multiplayer Pacman game server built on Cloudflare Workers 
 | `GET /ws` | WebSocket upgrade for game clients |
 | `/admin/*` | Admin HTTP API (API key auth) |
 
-## Admin API
+## Admin API (Phase 3 — not yet implemented)
 
 All endpoints require `Authorization: Bearer <key>` header.
 
@@ -51,9 +51,9 @@ Clients handle 6 message types total.
 - `round_end` — result and final scores
 - `error` — error message
 
-## Configuration
+## Configuration (Phase 3 — not yet implemented)
 
-Defaults from `config.yaml`:
+Planned defaults (currently `maxPlayers` is hardcoded to 10 in `src/game-room.ts`):
 
 ```yaml
 maxPlayers: 10
@@ -66,7 +66,7 @@ idleShutdownMinutes: 180  # auto-stop after 3h with 0 players
 
 Runtime overrides available via the admin API.
 
-## Game Rules
+## Game Rules (Phase 2 — not yet implemented)
 
 - Grid-based movement, one cell per tick
 - Pacman eats dots and power pellets for points
@@ -79,6 +79,13 @@ Runtime overrides available via the admin API.
 ## Development
 
 Runs in a devcontainer. Port `8000` is forwarded for local development.
+
+```bash
+npm run dev        # Start local dev server (wrangler, port 8000)
+npm test           # Run all tests
+npm run test:watch # Run tests in watch mode
+npm run deploy     # Deploy to Cloudflare
+```
 
 ## Docs
 

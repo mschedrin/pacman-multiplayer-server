@@ -6,23 +6,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Multiplayer Pacman game server for hackathons. Server-authoritative, built on Cloudflare Workers + Durable Objects. Participants build their own clients in 3 hours; the server handles all game logic.
 
-**Status:** Planning/infrastructure phase — spec is complete, implementation has not started.
+**Status:** Phase 1 complete — WebSocket connections, lobby, player tracking, ping/pong, error handling all working. Phase 2 (game logic) not started.
 
 ## Architecture
 
-- **Cloudflare Worker** — HTTP entrypoint at `GET /ws` (WebSocket upgrade) and `/admin/*` (REST API with Bearer token auth)
-- **Single Durable Object** — holds all state: lobby, players, game loop, round lifecycle
-- **Tick-based game loop** — `setInterval` inside the Durable Object, default 20 ticks/sec
-- **Server-authoritative** — clients send only `join` and `input` (direction), server computes movement, collisions, scoring, and broadcasts full state every tick
+- **Cloudflare Worker** — HTTP entrypoint at `GET /ws` (WebSocket upgrade); `/admin/*` planned for Phase 3
+- **Single Durable Object** — holds all state: lobby, players (game loop and round lifecycle planned for Phase 2)
+- **Tick-based game loop** — planned for Phase 2 (`setInterval` inside the DO, default 20 ticks/sec)
+- **Server-authoritative** — clients send only `join` (Phase 1) and `input` direction (Phase 2); server computes all state
 - **No persistent storage** — scores reset each round, no leaderboard
 
 ## Key Specs
 
 - Full feature spec: `docs/specs/feature-list.md`
 - Config defaults defined in YAML: `maxPlayers: 10`, `pacmanCount: 1`, `tickRate: 20`, etc.
-- Client protocol: 6 server message types (`welcome`, `lobby`, `round_start`, `state`, `round_end`, `error`), 2 client message types (`join`, `input`)
-- Server lifecycle: stopped → running (via admin API) → lobby → round → lobby (repeat)
-- Auto-shutdown via Cloudflare Alarm API after 3 hours with 0 players
+- Client protocol: implemented — 3 server types (`welcome`, `lobby`, `error`), 1 client type (`join`); planned — `round_start`, `state`, `round_end` server types, `input` client type
+- Server lifecycle: currently accepts connections directly; planned — stopped → running (via admin API) → lobby → round → lobby
+- Auto-shutdown via Cloudflare Alarm API after 3 hours with 0 players (planned)
 
 ## Development Environment
 
@@ -32,8 +32,26 @@ Multiplayer Pacman game server for hackathons. Server-authoritative, built on Cl
 - Wrangler CLI available for Cloudflare Workers development
 - Use `/durable-objects`, `/wrangler`, `/cloudflare`, and `/workers-best-practices` skills when implementing Cloudflare-specific code
 
+## Project Structure
+
+```
+├── package.json
+├── tsconfig.json
+├── wrangler.jsonc
+├── vitest.config.ts
+├── src/
+│   ├── index.ts          # Worker entrypoint (routes /ws to DO, 404 otherwise)
+│   ├── game-room.ts      # GameRoom Durable Object (lobby, WebSocket handling)
+│   └── types.ts          # Shared type definitions (Env, Player, messages)
+└── test/
+    ├── tsconfig.json      # Test-specific TS config
+    ├── env.d.ts           # cloudflare:test type declarations
+    └── game-room.test.ts  # Phase 1 tests (18 tests)
+```
+
 ## Build Commands
 
-No build/test/lint commands yet — implementation has not started. When implementation begins, expect a standard Wrangler-based workflow:
-- `npx wrangler dev` — local development server
-- `npx wrangler deploy` — deploy to Cloudflare
+- `npm test` — run all tests (Vitest + @cloudflare/vitest-pool-workers)
+- `npm run test:watch` — run tests in watch mode
+- `npm run dev` — start local dev server (wrangler dev, port 8000)
+- `npm run deploy` — deploy to Cloudflare
