@@ -53,12 +53,12 @@
 - [x] run tests - must pass before next task
 
 ### Task 2: Verify acceptance criteria
-- [ ] verify all requirements from Overview are implemented
-- [ ] verify edge cases are handled
-- [ ] run full test suite (unit tests)
-- [ ] run e2e tests if project has them
-- [ ] run linter - all issues must be fixed
-- [ ] verify test coverage meets project standard (80%+)
+- [x] verify all requirements from Overview are implemented
+- [x] verify edge cases are handled
+- [x] run full test suite (unit tests)
+- [x] run e2e tests if project has them
+- [x] run linter - all issues must be fixed
+- [x] verify test coverage meets project standard (80%+)
 
 ### Task 3: [Final] Update documentation
 - [ ] update README.md if needed with script usage examples

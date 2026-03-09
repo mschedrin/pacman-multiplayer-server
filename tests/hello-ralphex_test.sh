@@ -44,6 +44,17 @@ if [[ $missing_name_exit -eq 0 ]]; then
     exit 1
 fi
 assert_contains "$missing_name_output" "--name requires a value" "missing --name error message"
+assert_contains "$missing_name_output" "Usage:" "missing --name usage output"
+
+set +e
+name_flag_value_is_flag_output="$($TARGET --name --oops 2>&1)"
+name_flag_value_is_flag_exit=$?
+set -e
+if [[ $name_flag_value_is_flag_exit -eq 0 ]]; then
+    echo "FAIL: --name with flag-like value should fail"
+    exit 1
+fi
+assert_contains "$name_flag_value_is_flag_output" "--name requires a value" "--name flag-like value error message"
 
 set +e
 unknown_arg_output="$($TARGET --nope 2>&1)"
@@ -54,5 +65,6 @@ if [[ $unknown_arg_exit -eq 0 ]]; then
     exit 1
 fi
 assert_contains "$unknown_arg_output" "unknown argument" "unknown flag error message"
+assert_contains "$unknown_arg_output" "Usage:" "unknown flag usage output"
 
 echo "PASS: hello-ralphex tests"
