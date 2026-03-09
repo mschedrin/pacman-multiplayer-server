@@ -8,7 +8,7 @@
   "runArgs": ["--name", "${localWorkspaceFolderBasename}_devcontainer"],
   "mounts": [
     "source=${localEnv:HOME}/.claude,target=/root/.claude,type=bind",
-    "source=${localEnv:HOME}/.claude.json,target=/root/.claude.json,type=bind",
+    // "source=${localEnv:HOME}/.claude.json,target=/root/.claude.json,type=bind",
     "source=${localEnv:HOME}/.codex,target=/root/.codex,type=bind",
     "source=${localEnv:HOME}/.config/opencode,target=/root/.config/opencode,type=bind",
     "source=${localEnv:HOME}/.local/share/opencode,target=/root/.local/share/opencode,type=bind",
