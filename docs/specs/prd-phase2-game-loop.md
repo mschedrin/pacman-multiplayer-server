@@ -1,11 +1,11 @@
 # Phase 2: Game Loop — Map, Movement, Collisions, Rounds
 
-This phase makes the game playable. At round start, the server loads a map from YAML (walls, dots, power pellets, spawn points), randomly assigns players as pacman or ghost, and kicks off a tick-based game loop inside the Durable Object. Each tick, the server processes player direction inputs, moves players one grid cell, and runs collision detection: pacman eating dots scores points, power pellets make ghosts vulnerable, pacman touching a normal ghost kills the pacman, and pacman touching a vulnerable ghost eats the ghost (who respawns after a delay). Full game state is broadcast to all clients every tick. The round ends when all dots are eaten (pacman wins) or all pacmans are dead (ghosts win), at which point results are broadcast and everyone returns to lobby. For now, rounds are started/stopped by calling methods directly on the DO — the admin HTTP API comes in Phase 3.
+This phase makes the game playable. At round start, the server loads a hardcoded default map (walls, dots, power pellets, spawn points), randomly assigns players as pacman or ghost, and kicks off a tick-based game loop inside the Durable Object. Each tick, the server processes player direction inputs, moves players one grid cell, and runs collision detection: pacman eating dots scores points, power pellets make ghosts vulnerable, pacman touching a normal ghost kills the pacman, and pacman touching a vulnerable ghost eats the ghost (who respawns after a delay). Full game state is broadcast to all clients every tick. The round ends when all dots are eaten (pacman wins) or all pacmans are dead (ghosts win), at which point results are broadcast and everyone returns to lobby. Rounds are started by the admin (via direct DO method call in Phase 2; the admin HTTP API comes in Phase 3).
 
 ## Deliverables
 
-- [ ] Map loader — parse YAML map definition (walls, dots, power pellets, pacman spawns, ghost house spawn); validate that required spawn points exist
-- [ ] Default map YAML file shipped with the project
+- [ ] Map loader — parse a hardcoded character-grid map (walls, dots, power pellets, pacman spawns, ghost house spawn); validate that required spawn points exist
+- [ ] Default map defined as a TypeScript constant (character grid, no external file dependency)
 - [ ] Role assignment — configurable pacman count (default 1), rest are ghosts, randomly assigned at round start
 - [ ] `round_start` message — send map, assigned role, player list, and config to each client
 - [ ] Tick-based game loop via `setInterval` at configurable tick rate (default 20/sec)

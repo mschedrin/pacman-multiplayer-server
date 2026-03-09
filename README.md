@@ -66,7 +66,7 @@ idleShutdownMinutes: 180  # auto-stop after 3h with 0 players
 
 Runtime overrides available via the admin API.
 
-## Game Rules (Phase 2 — not yet implemented)
+## Game Rules
 
 - Grid-based movement, one cell per tick
 - Pacman eats dots and power pellets for points

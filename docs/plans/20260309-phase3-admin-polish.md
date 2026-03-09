@@ -2,18 +2,29 @@
 
 ## Overview
 - Add operational control to the game server: lifecycle states, admin HTTP API, runtime config, and auto-shutdown
-- Server gains stopped/running states controlled via admin API with Bearer token auth
-- Config system provides YAML defaults with runtime overrides; auto-shutdown via Cloudflare Alarm API keeps costs down
+- Server gains a `stopped` state (added to existing `lobby`/`playing` `RoundState`) controlled via admin API with Bearer token auth
+- Config system extends existing `DEFAULTS` in `types.ts` with runtime overrides via DO storage; auto-shutdown via Cloudflare Alarm API keeps costs down
 - Builds on Phase 1 (WebSocket/lobby) and Phase 2 (game loop/rounds) — assumes both are fully implemented
 
 ## Context (from discovery)
+- **Existing infrastructure (Phase 1 & 2):**
+  - `RoundState` is `"lobby" | "playing"` in `src/types.ts`
+  - `GameConfig` type and `DEFAULTS` constant already exist in `src/types.ts` (`tickRate`, `powerPelletDuration`, `ghostRespawnDelay`)
+  - `pacmanCount` (1) and `maxPlayers` (10) are hardcoded in `src/game-room.ts`, not in `GameConfig`
+  - `collision.ts` imports `DEFAULTS` directly — not configurable at runtime
+  - `Env` interface only has `GAME_ROOM` binding
+  - `GET /ws` routing exists in `src/index.ts`; all other routes return 404
+  - Joins during active rounds already rejected in `game-room.ts`
+  - No DO storage usage, no alarm logic
 - **Files to modify:**
   - `src/index.ts` — Worker entrypoint, add admin route handling and auth
   - `src/game-room.ts` — Durable Object, add lifecycle states, admin RPC methods, config, alarm
-  - `src/types.ts` — Add admin/config type definitions
+  - `src/types.ts` — Expand `GameConfig` (add `pacmanCount`, `maxPlayers`, `idleShutdownMinutes`), add `ADMIN_API_KEY` to `Env`, add `stopped` to `RoundState`
+  - `src/collision.ts` — Refactor to accept config parameter instead of importing `DEFAULTS` directly
+  - `src/game-loop.ts` — Thread config through `tick()` pipeline
+  - `wrangler.jsonc` — Document `ADMIN_API_KEY` as a secret
 - **Files to create:**
-  - `src/config.ts` — Config loading, defaults, merging logic
-  - `config.yaml` — Default config values
+  - `src/config.ts` — Config merging/validation logic
   - `test/admin.test.ts` — Admin API tests
   - `test/config.test.ts` — Config system tests
   - `test/lifecycle.test.ts` — Server lifecycle tests
@@ -50,24 +61,22 @@
 
 ## Implementation Steps
 
-### Task 1: Config system — defaults and merging
-- [ ] Create `config.yaml` with defaults: `maxPlayers: 10`, `pacmanCount: 1`, `tickRate: 20`, `powerPelletDuration: 100`, `ghostRespawnDelay: 60`, `idleShutdownMinutes: 180`
-- [ ] Create `src/config.ts` with `GameConfig` type and `DEFAULT_CONFIG` constant (hardcoded defaults matching YAML)
-- [ ] Add `mergeConfig(defaults: GameConfig, overrides: Partial<GameConfig>): GameConfig` — merges runtime overrides onto defaults, validates values (positive numbers, sane ranges)
-- [ ] Add config types to `src/types.ts`
+### Task 1: Config system — expand defaults and add merging
+- [ ] Expand existing `GameConfig` in `src/types.ts` to include `pacmanCount`, `maxPlayers`, and `idleShutdownMinutes`; update `DEFAULTS` constant accordingly
+- [ ] Remove hardcoded `MAX_PLAYERS` (10) and `pacmanCount` (1) from `src/game-room.ts` — use `DEFAULTS` instead
+- [ ] Create `src/config.ts` with `mergeConfig(defaults: GameConfig, overrides: Partial<GameConfig>): GameConfig` — merges runtime overrides onto defaults, validates values (positive numbers, sane ranges)
 - [ ] Write tests for `mergeConfig` — valid overrides, partial overrides, invalid values rejected
-- [ ] Write tests for `DEFAULT_CONFIG` — all expected keys present with correct defaults
+- [ ] Write tests for expanded `DEFAULTS` — all expected keys present with correct defaults
 - [ ] Run tests — must pass before next task
 
 ### Task 2: Server lifecycle states
-- [ ] Add `serverState: 'stopped' | 'running'` field to `GameRoom` DO (default: `'stopped'`)
-- [ ] Add `startServer()` method — sets state to `'running'`, no-op if already running
-- [ ] Add `stopServer()` method — disconnects all WebSocket clients with error message, force-ends round if active (calls existing round-end logic), sets state to `'stopped'`
-- [ ] Modify WebSocket upgrade handler in DO — reject with `error` message and close when `serverState === 'stopped'`
-- [ ] Modify WebSocket upgrade handler — reject new connections during active round (lobby only)
+- [ ] Add `stopped` to `RoundState` in `src/types.ts` (`"stopped" | "lobby" | "playing"`); initialize `roundState` to `'stopped'` in `GameRoom`
+- [ ] Add `startServer()` method — transitions from `stopped` to `lobby`, no-op if already in `lobby` or `playing`
+- [ ] Add `stopServer()` method — disconnects all WebSocket clients with error message, force-ends round if active (calls existing round-end logic), transitions to `stopped`
+- [ ] Modify WebSocket upgrade handler in DO — reject with `error` message and close when `roundState === 'stopped'`
+- [x] ~~Reject new connections during active round (lobby only)~~ — already implemented in Phase 2
 - [ ] Write tests for `startServer` / `stopServer` state transitions
 - [ ] Write tests for connection rejection when stopped
-- [ ] Write tests for connection rejection during active round
 - [ ] Run tests — must pass before next task
 
 ### Task 3: Admin auth middleware
@@ -92,15 +101,15 @@
 - [ ] Run tests — must pass before next task
 
 ### Task 5: Admin status endpoint
-- [ ] Implement `getStatus()` RPC on DO — returns `{ serverState, roundState, players: [{id, name, role, status}], config: GameConfig }`
-- [ ] `roundState` is `'lobby' | 'playing' | null` (null when server is stopped)
+- [ ] Implement `getStatus()` RPC on DO — returns `{ roundState, players: [{id, name, role, status}], config: GameConfig }`
+- [ ] `roundState` is the current `RoundState` value (`'stopped' | 'lobby' | 'playing'`)
 - [ ] Wire `GET /admin/status` to return JSON response from `getStatus()`
 - [ ] Write tests for status response in each server state (stopped, running/lobby, running/playing)
 - [ ] Run tests — must pass before next task
 
 ### Task 6: Server lifecycle endpoints
-- [ ] Wire `POST /admin/server/start` — call `startServer()`, return `{ ok: true, serverState: 'running' }`
-- [ ] Wire `POST /admin/server/stop` — call `stopServer()`, return `{ ok: true, serverState: 'stopped' }`
+- [ ] Wire `POST /admin/server/start` — call `startServer()`, return `{ ok: true, roundState: 'lobby' }`
+- [ ] Wire `POST /admin/server/stop` — call `stopServer()`, return `{ ok: true, roundState: 'stopped' }`
 - [ ] Return appropriate error if transition is invalid (e.g., starting an already-running server returns `{ ok: true }` as no-op, not an error)
 - [ ] Write tests for start/stop via HTTP — state transitions, response format, idempotent behavior
 - [ ] Run tests — must pass before next task
@@ -134,12 +143,13 @@
 - [ ] Write tests for alarm handler — stops server when 0 players, no-op when players connected
 - [ ] Run tests — must pass before next task
 
-### Task 10: Config integration — wire config into game systems
-- [ ] Replace any hardcoded `maxPlayers` in Phase 1 code with config value
-- [ ] Replace any hardcoded tick rate in `setInterval` with `config.tickRate`
-- [ ] Replace any hardcoded `pacmanCount` in role assignment with config value
-- [ ] Replace any hardcoded `powerPelletDuration` and `ghostRespawnDelay` in collision/game-loop code with config values
-- [ ] Write tests verifying config values are respected — e.g., different tick rate, different pacman count
+### Task 10: Config integration — wire config through tick pipeline
+- [ ] Refactor `tick()` in `src/game-loop.ts` to accept `GameConfig` parameter and pass it to collision functions
+- [ ] Refactor `collision.ts` functions (`checkPelletCollisions`, `checkPlayerCollisions`, `updateTimers`) to accept config instead of importing `DEFAULTS` directly
+- [ ] Update `startGameLoop()` in `game-room.ts` to use merged config `tickRate` for `setInterval`
+- [ ] Update `startRound()` in `game-room.ts` to use merged config `pacmanCount` for `assignRoles()` and `maxPlayers` for player cap
+- [ ] Update existing Phase 2 tests that call `tick()` or collision functions to pass config
+- [ ] Write tests verifying config values are respected — e.g., different tick rate, different pacman count, different power pellet duration
 - [ ] Run tests — must pass before next task
 
 ### Task 11: Verify acceptance criteria
@@ -158,22 +168,22 @@
 
 ## Technical Details
 
-### Server State Machine
+### Server State Machine (`RoundState`)
 ```
-stopped ──[POST /admin/server/start]──► running (lobby)
-                                            │
-                              [POST /admin/round/start]
-                                            │
-                                            ▼
-                                      running (round)
-                                            │
-                              [round ends / POST /admin/round/stop]
-                                            │
-                                            ▼
-                                      running (lobby)
+stopped ──[POST /admin/server/start]──► lobby
+                                          │
+                            [POST /admin/round/start]
+                                          │
+                                          ▼
+                                       playing
+                                          │
+                            [round ends / POST /admin/round/stop]
+                                          │
+                                          ▼
+                                        lobby
 
-running (*) ──[POST /admin/server/stop]──► stopped
-running (*) ──[alarm fires, 0 players]──► stopped
+lobby|playing ──[POST /admin/server/stop]──► stopped
+lobby|playing ──[alarm fires, 0 players]──► stopped
 ```
 
 ### Admin API Endpoints
@@ -187,18 +197,20 @@ running (*) ──[alarm fires, 0 players]──► stopped
 | PUT | `/admin/config` | Bearer | Update runtime config |
 
 ### Config Merge Order
-1. `DEFAULT_CONFIG` (hardcoded, matches `config.yaml`)
+1. `DEFAULTS` constant in `src/types.ts` (expanded with `pacmanCount`, `maxPlayers`, `idleShutdownMinutes`)
 2. Runtime overrides from DO storage (`configOverrides`)
-3. Result used for next round start
+3. Merged result used at next round start and passed through tick pipeline
 
 ### Files Modified/Created
 | File | Action | Purpose |
 |------|--------|---------|
-| `config.yaml` | Create | Default config values (reference) |
-| `src/config.ts` | Create | Config types, defaults, merge logic |
-| `src/types.ts` | Modify | Add `GameConfig`, admin types, env types |
+| `src/types.ts` | Modify | Expand `GameConfig` + `DEFAULTS`, add `stopped` to `RoundState`, add `ADMIN_API_KEY` to `Env` |
+| `src/config.ts` | Create | Config merge/validation logic |
 | `src/index.ts` | Modify | Admin routing, auth middleware |
 | `src/game-room.ts` | Modify | Lifecycle states, admin RPCs, alarm, config storage |
+| `src/game-loop.ts` | Modify | Accept `GameConfig` param in `tick()`, pass to collision functions |
+| `src/collision.ts` | Modify | Accept config param instead of importing `DEFAULTS` directly |
+| `wrangler.jsonc` | Modify | Document `ADMIN_API_KEY` secret |
 | `test/config.test.ts` | Create | Config merge tests |
 | `test/admin.test.ts` | Create | Admin endpoint tests |
 | `test/lifecycle.test.ts` | Create | Lifecycle + alarm tests |
