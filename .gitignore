@@ -10,3 +10,4 @@ node_modules/
 
 # wrangler local state
 .wrangler/
+.tmp-build

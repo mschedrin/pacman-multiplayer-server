@@ -117,11 +117,15 @@ Auto-shutdown: when all players disconnect, an alarm is set for `idleShutdownMin
 Runs in a devcontainer. Port `8000` is forwarded for local development.
 
 ```bash
-npm run dev        # Start local dev server (wrangler, port 8000)
+# Start local dev server (must bind to 0.0.0.0 inside the container)
+npx wrangler dev --port 8000 --ip 0.0.0.0
+
 npm test           # Run all tests
 npm run test:watch # Run tests in watch mode
 npm run deploy     # Deploy to Cloudflare
 ```
+
+> **Note:** `npm run dev` uses `wrangler dev` which binds to `localhost` by default. Inside the devcontainer, use `npx wrangler dev --port 8000 --ip 0.0.0.0` so the server is reachable from the host.
 
 ## Docs
 
