@@ -22,18 +22,52 @@ Server-authoritative multiplayer Pacman game server built on Cloudflare Workers 
 | `GET /ws` | WebSocket upgrade for game clients |
 | `/admin/*` | Admin HTTP API (API key auth) |
 
-## Admin API (Phase 3 — not yet implemented)
+## Admin API
 
-All endpoints require `Authorization: Bearer <key>` header.
+All endpoints require `Authorization: Bearer <key>` header. Set the API key as a Cloudflare secret:
+
+```bash
+npx wrangler secret put ADMIN_API_KEY
+```
+
+For local development, add `ADMIN_API_KEY` to a `.dev.vars` file (not committed):
+
+```
+ADMIN_API_KEY=your-dev-key-here
+```
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/admin/status` | Server state, players, round status |
+| `GET` | `/admin/status` | Server state, players, config |
 | `POST` | `/admin/server/start` | Start server (accept connections) |
 | `POST` | `/admin/server/stop` | Stop server (disconnect all) |
-| `POST` | `/admin/round/start` | Start a round |
-| `POST` | `/admin/round/stop` | Force-stop round |
+| `POST` | `/admin/round/start` | Start a round (requires lobby + players) |
+| `POST` | `/admin/round/stop` | Force-stop active round |
 | `PUT` | `/admin/config` | Update config (applies next round) |
+
+Server starts in `stopped` state. Typical flow:
+
+```bash
+# Start the server
+curl -X POST http://localhost:8000/admin/server/start \
+  -H "Authorization: Bearer $ADMIN_API_KEY"
+
+# Players connect via WebSocket...
+
+# Start a round
+curl -X POST http://localhost:8000/admin/round/start \
+  -H "Authorization: Bearer $ADMIN_API_KEY"
+
+# Check status
+curl http://localhost:8000/admin/status \
+  -H "Authorization: Bearer $ADMIN_API_KEY"
+
+# Update config for next round
+curl -X PUT http://localhost:8000/admin/config \
+  -H "Authorization: Bearer $ADMIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"pacmanCount": 2, "tickRate": 15}'
+```
 
 ## Client Protocol (WebSocket, JSON)
 
@@ -51,20 +85,22 @@ Clients handle 6 message types total.
 - `round_end` — result and final scores
 - `error` — error message
 
-## Configuration (Phase 3 — not yet implemented)
+## Configuration
 
-Planned defaults (currently `maxPlayers` is hardcoded to 10 in `src/game-room.ts`):
+Default config values (defined in `src/types.ts`):
 
 ```yaml
 maxPlayers: 10
 pacmanCount: 1
-tickRate: 20
-powerPelletDuration: 100  # ticks (~5 sec at 20 tps)
-ghostRespawnDelay: 60     # ticks (~3 sec at 20 tps)
-idleShutdownMinutes: 180  # auto-stop after 3h with 0 players
+tickRate: 20               # ticks per second
+powerPelletDuration: 100   # ticks (~5 sec at 20 tps)
+ghostRespawnDelay: 60      # ticks (~3 sec at 20 tps)
+idleShutdownMinutes: 180   # auto-stop after 3h with 0 players
 ```
 
-Runtime overrides available via the admin API.
+Config can be updated at runtime via `PUT /admin/config` with a partial JSON object. Changes are stored in Durable Object storage and applied at the next round start.
+
+Auto-shutdown: when all players disconnect, an alarm is set for `idleShutdownMinutes`. If no one reconnects before it fires, the server stops automatically.
 
 ## Game Rules
 

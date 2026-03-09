@@ -2,6 +2,7 @@ import type { GameRoom } from "./game-room";
 
 export interface Env {
   GAME_ROOM: DurableObjectNamespace<GameRoom>;
+  ADMIN_API_KEY: string;
 }
 
 export type CellType =
@@ -33,7 +34,7 @@ export interface Player {
   direction: Direction | null;
 }
 
-export type RoundState = "lobby" | "playing";
+export type RoundState = "stopped" | "lobby" | "playing";
 
 export interface GameState {
   map: GameMap;
@@ -50,12 +51,18 @@ export interface GameConfig {
   tickRate: number;
   powerPelletDuration: number;
   ghostRespawnDelay: number;
+  pacmanCount: number;
+  maxPlayers: number;
+  idleShutdownMinutes: number;
 }
 
 export const DEFAULTS: GameConfig = {
   tickRate: 20,
   powerPelletDuration: 100,
   ghostRespawnDelay: 60,
+  pacmanCount: 1,
+  maxPlayers: 10,
+  idleShutdownMinutes: 180,
 };
 
 // Client → Server messages
@@ -118,7 +125,7 @@ export interface StateMessage {
 
 export interface RoundEndMessage {
   type: "round_end";
-  result: "pacman" | "ghosts";
+  result: "pacman" | "ghosts" | "cancelled";
   scores: Record<string, number>;
 }
 

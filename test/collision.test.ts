@@ -123,7 +123,7 @@ describe("checkPelletCollisions", () => {
       powerPellets: new Set(["2,2"]),
     });
 
-    const result = checkPelletCollisions(state);
+    const result = checkPelletCollisions(state, DEFAULTS);
     expect(result.powerPellets.has("2,2")).toBe(false);
     expect(result.players.get("g1")!.status).toBe("vulnerable");
     expect(result.vulnerabilityTimer).toBe(DEFAULTS.powerPelletDuration);
@@ -137,7 +137,7 @@ describe("checkPelletCollisions", () => {
       powerPellets: new Set(["2,2"]),
     });
 
-    const result = checkPelletCollisions(state);
+    const result = checkPelletCollisions(state, DEFAULTS);
     expect(result.vulnerabilityTimer).toBe(DEFAULTS.powerPelletDuration);
   });
 
@@ -150,7 +150,7 @@ describe("checkPelletCollisions", () => {
       powerPellets: new Set(["2,2"]),
     });
 
-    const result = checkPelletCollisions(state);
+    const result = checkPelletCollisions(state, DEFAULTS);
     expect(result.players.get("g1")!.status).toBe("dead");
     expect(result.players.get("g2")!.status).toBe("respawning");
   });
@@ -163,7 +163,7 @@ describe("checkPelletCollisions", () => {
       powerPellets: new Set(["2,2"]),
     });
 
-    const result = checkPelletCollisions(state);
+    const result = checkPelletCollisions(state, DEFAULTS);
     expect(result.powerPellets.has("2,2")).toBe(true);
     expect(result.players.get("g1")!.status).toBe("active");
     expect(result.vulnerabilityTimer).toBe(0);
@@ -176,7 +176,7 @@ describe("checkPelletCollisions", () => {
       powerPellets: new Set(["2,2"]),
     });
 
-    const result = checkPelletCollisions(state);
+    const result = checkPelletCollisions(state, DEFAULTS);
     expect(result.powerPellets.has("2,2")).toBe(true);
   });
 });
@@ -278,7 +278,7 @@ describe("checkPlayerCollisions", () => {
       scores: new Map([["p1", 5], ["g1", 0]]),
     });
 
-    const result = checkPlayerCollisions(state);
+    const result = checkPlayerCollisions(state, DEFAULTS);
     expect(result.players.get("p1")!.status).toBe("dead");
     expect(result.players.get("g1")!.status).toBe("active");
   });
@@ -291,7 +291,7 @@ describe("checkPlayerCollisions", () => {
       scores: new Map([["p1", 0], ["g1", 0]]),
     });
 
-    const result = checkPlayerCollisions(state);
+    const result = checkPlayerCollisions(state, DEFAULTS);
     expect(result.players.get("p1")!.status).toBe("dead");
   });
 
@@ -304,7 +304,7 @@ describe("checkPlayerCollisions", () => {
       vulnerabilityTimer: 50,
     });
 
-    const result = checkPlayerCollisions(state);
+    const result = checkPlayerCollisions(state, DEFAULTS);
     expect(result.players.get("g1")!.status).toBe("respawning");
     expect(result.scores.get("p1")).toBe(3);
     expect(result.respawnTimers.get("g1")).toBe(DEFAULTS.ghostRespawnDelay);
@@ -318,7 +318,7 @@ describe("checkPlayerCollisions", () => {
       scores: new Map([["p1", 0], ["g1", 0]]),
     });
 
-    const result = checkPlayerCollisions(state);
+    const result = checkPlayerCollisions(state, DEFAULTS);
     expect(result.players.get("p1")!.status).toBe("active");
     expect(result.players.get("g1")!.status).toBe("active");
   });
@@ -330,7 +330,7 @@ describe("checkPlayerCollisions", () => {
       players: new Map([["p1", pacman], ["g1", ghost]]),
     });
 
-    const result = checkPlayerCollisions(state);
+    const result = checkPlayerCollisions(state, DEFAULTS);
     expect(result.players.get("p1")!.status).toBe("dead");
     expect(result.players.get("g1")!.status).toBe("active");
   });
@@ -342,7 +342,7 @@ describe("checkPlayerCollisions", () => {
       players: new Map([["p1", pacman], ["g1", ghost]]),
     });
 
-    const result = checkPlayerCollisions(state);
+    const result = checkPlayerCollisions(state, DEFAULTS);
     expect(result.players.get("p1")!.status).toBe("active");
     expect(result.players.get("g1")!.status).toBe("respawning");
   });
@@ -357,11 +357,40 @@ describe("checkPlayerCollisions", () => {
       vulnerabilityTimer: 50,
     });
 
-    const result = checkPlayerCollisions(state);
+    const result = checkPlayerCollisions(state, DEFAULTS);
     expect(result.players.get("g1")!.status).toBe("respawning");
     // Only one pacman should get the score
     const p1Score = result.scores.get("p1")!;
     const p2Score = result.scores.get("p2")!;
     expect(p1Score + p2Score).toBe(1);
+  });
+});
+
+describe("config integration", () => {
+  const customConfig = { ...DEFAULTS, powerPelletDuration: 50, ghostRespawnDelay: 10 };
+
+  it("checkPelletCollisions uses config powerPelletDuration", () => {
+    const pacman = makePlayer({ id: "p1", position: { x: 2, y: 2 }, role: "pacman" });
+    const ghost = makePlayer({ id: "g1", position: { x: 3, y: 3 }, role: "ghost", status: "active" });
+    const state = makeGameState({
+      players: new Map([["p1", pacman], ["g1", ghost]]),
+      powerPellets: new Set(["2,2"]),
+    });
+
+    const result = checkPelletCollisions(state, customConfig);
+    expect(result.vulnerabilityTimer).toBe(50);
+  });
+
+  it("checkPlayerCollisions uses config ghostRespawnDelay", () => {
+    const pacman = makePlayer({ id: "p1", role: "pacman", status: "active", position: { x: 3, y: 1 } });
+    const ghost = makePlayer({ id: "g1", role: "ghost", status: "vulnerable", position: { x: 3, y: 1 } });
+    const state = makeGameState({
+      players: new Map([["p1", pacman], ["g1", ghost]]),
+      scores: new Map([["p1", 0], ["g1", 0]]),
+      vulnerabilityTimer: 50,
+    });
+
+    const result = checkPlayerCollisions(state, customConfig);
+    expect(result.respawnTimers.get("g1")).toBe(10);
   });
 });

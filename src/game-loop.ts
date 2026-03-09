@@ -1,4 +1,4 @@
-import type { GameState, Player, GameMap } from "./types";
+import type { GameState, GameConfig, Player, GameMap } from "./types";
 import { checkDotCollisions, checkPelletCollisions, checkPlayerCollisions, updateTimers } from "./collision";
 
 /**
@@ -96,12 +96,12 @@ export function checkRoundEnd(state: GameState): { ended: boolean; result?: "pac
 /**
  * Run a single game tick. Pure function.
  */
-export function tick(state: GameState): GameState {
+export function tick(state: GameState, config: GameConfig): GameState {
   let next = { ...state, tick: state.tick + 1 };
   next = processMovement(next);
   next = checkDotCollisions(next);
-  next = checkPelletCollisions(next);
-  next = checkPlayerCollisions(next);
+  next = checkPelletCollisions(next, config);
+  next = checkPlayerCollisions(next, config);
   next = updateTimers(next);
   return next;
 }

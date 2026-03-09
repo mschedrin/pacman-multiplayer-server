@@ -5,6 +5,10 @@
   "dev": {
     "port": 8000
   },
+  "vars": {
+    // For local dev/testing only; production uses: npx wrangler secret put ADMIN_API_KEY
+    "ADMIN_API_KEY": "test-admin-key"
+  },
   "durable_objects": {
     "bindings": [
       {

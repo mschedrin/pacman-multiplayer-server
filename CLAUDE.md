@@ -6,23 +6,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Multiplayer Pacman game server for hackathons. Server-authoritative, built on Cloudflare Workers + Durable Objects. Participants build their own clients in 3 hours; the server handles all game logic.
 
-**Status:** Phase 2 complete — game loop, grid movement, collision detection, round lifecycle all working on top of Phase 1 (WebSocket, lobby, player tracking, ping/pong, error handling).
+**Status:** Phase 3 complete — admin HTTP API, server lifecycle (stopped/lobby/playing), runtime config, auto-shutdown via Cloudflare Alarm API, all on top of Phase 2 (game loop, collisions, rounds) and Phase 1 (WebSocket, lobby, player tracking).
 
 ## Architecture
 
-- **Cloudflare Worker** — HTTP entrypoint at `GET /ws` (WebSocket upgrade); `/admin/*` planned for Phase 3
-- **Single Durable Object** — holds all state: lobby, players, game loop, round lifecycle
-- **Tick-based game loop** — `setInterval` inside the DO at 20 ticks/sec; pure-function tick pipeline (movement → collisions → timers → end check)
-- **Server-authoritative** — clients send only `join` (Phase 1) and `input` direction (Phase 2); server computes all state
-- **No persistent storage** — scores reset each round, no leaderboard
+- **Cloudflare Worker** — HTTP entrypoint at `GET /ws` (WebSocket upgrade); `/admin/*` routes with Bearer token auth
+- **Single Durable Object** — holds all state: lobby, players, game loop, round lifecycle, config overrides, alarm
+- **Tick-based game loop** — `setInterval` inside the DO at configurable ticks/sec; pure-function tick pipeline (movement → collisions → timers → end check)
+- **Server-authoritative** — clients send only `join` and `input` direction; server computes all state
+- **DO storage** — config overrides persisted via `ctx.storage`; auto-shutdown alarm via Cloudflare Alarm API
 
 ## Key Specs
 
 - Full feature spec: `docs/specs/feature-list.md`
-- Config defaults: `DEFAULTS` constant in `src/types.ts` (`tickRate: 20`, `powerPelletDuration: 100`, `ghostRespawnDelay: 60`); `maxPlayers: 10` and `pacmanCount: 1` hardcoded in `src/game-room.ts`
+- Config defaults: `DEFAULTS` constant in `src/types.ts` (`tickRate`, `powerPelletDuration`, `ghostRespawnDelay`, `maxPlayers`, `pacmanCount`, `idleShutdownMinutes`); runtime overrides via `PUT /admin/config`
 - Client protocol: 6 server message types (`welcome`, `lobby`, `round_start`, `state`, `round_end`, `error`), 2 client types (`join`, `input`)
-- Server lifecycle: lobby → playing → lobby; admin API for start/stop planned for Phase 3
-- Auto-shutdown via Cloudflare Alarm API after 3 hours with 0 players (planned)
+- Server lifecycle: stopped → lobby → playing → lobby; controlled via admin API (`/admin/server/start`, `/admin/server/stop`, `/admin/round/start`, `/admin/round/stop`)
+- Auto-shutdown via Cloudflare Alarm API after configurable idle period (default 3 hours) with 0 players
+- Admin auth: `ADMIN_API_KEY` env secret, Bearer token on all `/admin/*` routes
 
 ## Development Environment
 
@@ -40,17 +41,22 @@ Multiplayer Pacman game server for hackathons. Server-authoritative, built on Cl
 ├── wrangler.jsonc
 ├── vitest.config.ts
 ├── src/
-│   ├── index.ts          # Worker entrypoint (routes /ws to DO, 404 otherwise)
-│   ├── game-room.ts      # GameRoom Durable Object (lobby, WebSocket, round lifecycle)
+│   ├── index.ts          # Worker entrypoint (routes /ws and /admin/*, auth middleware)
+│   ├── game-room.ts      # GameRoom Durable Object (lobby, WebSocket, lifecycle, admin RPCs, alarm)
 │   ├── game-loop.ts      # Pure-function tick pipeline (movement, collision orchestration)
 │   ├── map.ts            # Map parsing, validation, DEFAULT_MAP constant
 │   ├── roles.ts          # Role assignment (pacman/ghost)
 │   ├── collision.ts      # Dot, pellet, and player collision detection
-│   └── types.ts          # Shared type definitions (Env, Player, GameState, messages)
+│   ├── config.ts         # Config merging and validation
+│   └── types.ts          # Shared type definitions (Env, Player, GameState, messages, GameConfig)
 └── test/
     ├── tsconfig.json      # Test-specific TS config
     ├── env.d.ts           # cloudflare:test type declarations
     ├── game-room.test.ts  # WebSocket, lobby, round start/end integration tests
+    ├── admin.test.ts      # Admin API endpoint and auth tests
+    ├── lifecycle.test.ts  # Server lifecycle and alarm tests
+    ├── config.test.ts     # Config merging and validation tests
+    ├── acceptance.test.ts # End-to-end acceptance tests
     ├── map.test.ts        # Map parsing and validation tests
     ├── roles.test.ts      # Role assignment tests
     ├── collision.test.ts  # Collision detection tests

@@ -8,6 +8,7 @@ describe("Worker", () => {
   });
 
   it("returns 101 for GET /ws with upgrade header", async () => {
+    await startServer();
     const response = await SELF.fetch("http://fake-host/ws", {
       headers: { Upgrade: "websocket" },
     });
@@ -63,6 +64,12 @@ function nextMessage(q: QueuedWebSocket, timeoutMs = 5000): Promise<Record<strin
   });
 }
 
+async function startServer(): Promise<void> {
+  const id = env.GAME_ROOM.idFromName("default");
+  const stub = env.GAME_ROOM.get(id);
+  await stub.startServer();
+}
+
 async function connectWebSocket(): Promise<WebSocket> {
   const response = await SELF.fetch("http://fake-host/ws", {
     headers: { Upgrade: "websocket" },
@@ -86,6 +93,7 @@ function waitForMessage(ws: WebSocket, timeoutMs = 5000): Promise<Record<string,
 
 describe("Join flow", () => {
   it("valid join receives welcome with player ID and roster", async () => {
+    await startServer();
     const ws = await connectWebSocket();
     const msgPromise = waitForMessage(ws);
     ws.send(JSON.stringify({ type: "join", name: "Alice" }));
@@ -106,6 +114,7 @@ describe("Join flow", () => {
   });
 
   it("join with empty name receives error", async () => {
+    await startServer();
     const ws = await connectWebSocket();
     const msgPromise = waitForMessage(ws);
     ws.send(JSON.stringify({ type: "join", name: "" }));
@@ -118,6 +127,7 @@ describe("Join flow", () => {
   });
 
   it("join with missing name receives error", async () => {
+    await startServer();
     const ws = await connectWebSocket();
     const msgPromise = waitForMessage(ws);
     ws.send(JSON.stringify({ type: "join" }));
@@ -130,6 +140,7 @@ describe("Join flow", () => {
   });
 
   it("join with whitespace-only name receives error", async () => {
+    await startServer();
     const ws = await connectWebSocket();
     const msgPromise = waitForMessage(ws);
     ws.send(JSON.stringify({ type: "join", name: "   " }));
@@ -142,6 +153,7 @@ describe("Join flow", () => {
   });
 
   it("duplicate join from same connection receives error", async () => {
+    await startServer();
     const ws = await connectWebSocket();
 
     // First join
@@ -167,6 +179,7 @@ describe("Join flow", () => {
 
 describe("Lobby broadcast", () => {
   it("player A joins, player B joins, both receive lobby with 2 players", async () => {
+    await startServer();
     const wsA = await connectWebSocket();
     const welcomeAPromise = waitForMessage(wsA);
     wsA.send(JSON.stringify({ type: "join", name: "Alice" }));
@@ -205,6 +218,7 @@ describe("Lobby broadcast", () => {
   });
 
   it("player disconnects, remaining players receive updated lobby", async () => {
+    await startServer();
     const wsA = await connectWebSocket();
     const welcomeAPromise = waitForMessage(wsA);
     wsA.send(JSON.stringify({ type: "join", name: "Alice" }));
@@ -234,6 +248,7 @@ describe("Lobby broadcast", () => {
 
 describe("Max player cap", () => {
   it("10 players join successfully, 11th receives error and connection is closed", async () => {
+    await startServer();
     const queues: QueuedWebSocket[] = [];
 
     // Join 10 players using queued websockets
@@ -273,6 +288,7 @@ describe("Max player cap", () => {
   }, 30000);
 
   it("player leaves, new player can join (count drops below cap)", async () => {
+    await startServer();
     const queues: QueuedWebSocket[] = [];
 
     // Join 10 players
@@ -321,6 +337,7 @@ describe("Max player cap", () => {
 
 describe("Error handling for malformed messages", () => {
   it("non-JSON message returns error", async () => {
+    await startServer();
     const ws = await connectWebSocket();
     const msgPromise = waitForMessage(ws);
     ws.send("this is not json{{{");
@@ -333,6 +350,7 @@ describe("Error handling for malformed messages", () => {
   });
 
   it("unknown message type returns error", async () => {
+    await startServer();
     const ws = await connectWebSocket();
 
     // Join first
@@ -354,6 +372,7 @@ describe("Error handling for malformed messages", () => {
   });
 
   it("message before join returns 'Must join first' error", async () => {
+    await startServer();
     const ws = await connectWebSocket();
     const msgPromise = waitForMessage(ws);
     ws.send(JSON.stringify({ type: "input", direction: "up" }));
@@ -368,6 +387,7 @@ describe("Error handling for malformed messages", () => {
 
 describe("Name validation", () => {
   it("name exceeding 30 characters receives error", async () => {
+    await startServer();
     const ws = await connectWebSocket();
     const msgPromise = waitForMessage(ws);
     ws.send(JSON.stringify({ type: "join", name: "A".repeat(31) }));
@@ -380,6 +400,7 @@ describe("Name validation", () => {
   });
 
   it("name at exactly 30 characters is accepted", async () => {
+    await startServer();
     const ws = await connectWebSocket();
     const msgPromise = waitForMessage(ws);
     ws.send(JSON.stringify({ type: "join", name: "A".repeat(30) }));
@@ -393,6 +414,7 @@ describe("Name validation", () => {
 
 describe("Binary message handling", () => {
   it("binary ArrayBuffer message returns error", async () => {
+    await startServer();
     const ws = await connectWebSocket();
     const msgPromise = waitForMessage(ws);
     ws.send(new ArrayBuffer(8));
@@ -405,6 +427,7 @@ describe("Binary message handling", () => {
   });
 
   it("JSON null payload returns error instead of crashing", async () => {
+    await startServer();
     const ws = await connectWebSocket();
     const msgPromise = waitForMessage(ws);
     ws.send("null");
@@ -417,6 +440,7 @@ describe("Binary message handling", () => {
   });
 
   it("JSON array payload returns error", async () => {
+    await startServer();
     const ws = await connectWebSocket();
     const msgPromise = waitForMessage(ws);
     ws.send("[1,2,3]");
@@ -430,6 +454,7 @@ describe("Binary message handling", () => {
 });
 
 async function joinPlayer(name: string): Promise<QueuedWebSocket> {
+  await startServer();
   const ws = await connectWebSocket();
   const q = createQueuedWebSocket(ws);
   ws.send(JSON.stringify({ type: "join", name }));
@@ -439,9 +464,14 @@ async function joinPlayer(name: string): Promise<QueuedWebSocket> {
 }
 
 async function joinPlayers(names: string[]): Promise<QueuedWebSocket[]> {
+  await startServer();
   const queues: QueuedWebSocket[] = [];
   for (const name of names) {
-    const q = await joinPlayer(name);
+    const ws = await connectWebSocket();
+    const q = createQueuedWebSocket(ws);
+    ws.send(JSON.stringify({ type: "join", name }));
+    await nextMessage(q); // welcome
+    await nextMessage(q); // lobby
     // Drain lobby broadcasts from previously joined players
     for (const prev of queues) {
       await nextMessage(prev);
@@ -462,7 +492,7 @@ describe("Round start flow", () => {
 
     const stub = getStub();
     const result = await stub.startRound();
-    expect(result.success).toBe(true);
+    expect(result.ok).toBe(true);
 
     // Both players should receive round_start
     const msgA = await nextMessage(queues[0]);
@@ -538,11 +568,11 @@ describe("Round start flow", () => {
 
     const stub = getStub();
     const result = await stub.startRound();
-    expect(result.success).toBe(true);
+    expect(result.ok).toBe(true);
 
     // Calling startRound again should fail (already playing)
     const result2 = await stub.startRound();
-    expect(result2.success).toBe(false);
+    expect(result2.ok).toBe(false);
     expect(result2.error).toBe("Round already in progress");
 
     for (const q of queues) q.ws.close();
@@ -571,8 +601,9 @@ describe("Rejection during active round", () => {
 describe("Insufficient players for round start", () => {
   it("startRound with 0 players returns error", async () => {
     const stub = getStub();
+    await stub.startServer();
     const result = await stub.startRound();
-    expect(result.success).toBe(false);
+    expect(result.ok).toBe(false);
     expect(result.error).toBe("Need at least 2 players to start");
   });
 
@@ -581,7 +612,7 @@ describe("Insufficient players for round start", () => {
 
     const stub = getStub();
     const result = await stub.startRound();
-    expect(result.success).toBe(false);
+    expect(result.ok).toBe(false);
     expect(result.error).toBe("Need at least 2 players to start");
 
     // Player should still be in lobby (no round_start message)
@@ -825,6 +856,7 @@ describe("Round end — return to lobby", () => {
 
 describe("Heartbeat ping/pong", () => {
   it("ping returns pong as auto-response", async () => {
+    await startServer();
     const ws = await connectWebSocket();
 
     const pongPromise = new Promise<string>((resolve) => {
@@ -841,6 +873,7 @@ describe("Heartbeat ping/pong", () => {
   });
 
   it("abnormal close triggers player cleanup and lobby broadcast", async () => {
+    await startServer();
     // Connect two players
     const wsA = await connectWebSocket();
     const qA = createQueuedWebSocket(wsA);

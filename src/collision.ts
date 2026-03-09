@@ -1,5 +1,4 @@
-import type { GameState, Player } from "./types";
-import { DEFAULTS } from "./types";
+import type { GameState, GameConfig, Player } from "./types";
 
 /**
  * Check dot collisions: if a pacman is on a dot, remove the dot and increment score.
@@ -26,7 +25,7 @@ export function checkDotCollisions(state: GameState): GameState {
  * Check power pellet collisions: if a pacman is on a power pellet,
  * remove it, set all active ghosts to vulnerable, and reset the vulnerability timer.
  */
-export function checkPelletCollisions(state: GameState): GameState {
+export function checkPelletCollisions(state: GameState, config: GameConfig): GameState {
   const powerPellets = new Set(state.powerPellets);
   let consumed = false;
 
@@ -59,7 +58,7 @@ export function checkPelletCollisions(state: GameState): GameState {
     ...state,
     powerPellets,
     players: updatedPlayers,
-    vulnerabilityTimer: DEFAULTS.powerPelletDuration,
+    vulnerabilityTimer: config.powerPelletDuration,
   };
 }
 
@@ -68,7 +67,7 @@ export function checkPelletCollisions(state: GameState): GameState {
  * - Pacman + active ghost → pacman dies
  * - Pacman + vulnerable ghost → ghost respawning, pacman gets score
  */
-export function checkPlayerCollisions(state: GameState): GameState {
+export function checkPlayerCollisions(state: GameState, config: GameConfig): GameState {
   const players = new Map(state.players);
   const scores = new Map(state.scores);
   const respawnTimers = new Map(state.respawnTimers);
@@ -113,7 +112,7 @@ export function checkPlayerCollisions(state: GameState): GameState {
         } else if (currentGhost.status === "vulnerable") {
           // Pacman eats vulnerable ghost
           players.set(ghostId, { ...currentGhost, status: "respawning" });
-          respawnTimers.set(ghostId, DEFAULTS.ghostRespawnDelay);
+          respawnTimers.set(ghostId, config.ghostRespawnDelay);
           scores.set(pacId, (scores.get(pacId) ?? 0) + 1);
         }
       }

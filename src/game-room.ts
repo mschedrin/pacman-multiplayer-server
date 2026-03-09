@@ -12,26 +12,213 @@ import type {
   Role,
 } from "./types";
 import { DEFAULTS } from "./types";
+import { mergeConfig, sanitizeOverrides } from "./config";
 import { parseCharGrid, DEFAULT_MAP, validateMap } from "./map";
 import { assignRoles } from "./roles";
 import { tick, checkRoundEnd } from "./game-loop";
 
-const MAX_PLAYERS = 10;
 const MAX_NAME_LENGTH = 30;
 
 export class GameRoom extends DurableObject<Env> {
-  private roundState: RoundState = "lobby";
+  private roundState: RoundState = "stopped";
   private gameState: GameState | null = null;
   private tickInterval: ReturnType<typeof setInterval> | null = null;
+  private activeConfig: GameConfig = { ...DEFAULTS };
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.ctx.setWebSocketAutoResponse(
       new WebSocketRequestResponsePair("ping", "pong")
     );
+    this.ctx.blockConcurrencyWhile(async () => {
+      const storedState = await this.ctx.storage.get<RoundState>("roundState");
+      if (storedState === "lobby" || storedState === "playing") {
+        // A round cannot survive hibernation (setInterval is lost),
+        // so "playing" degrades to "lobby" on restart.
+        this.roundState = "lobby";
+
+        if (storedState === "playing") {
+          // Persist the downgraded state
+          await this.ctx.storage.put("roundState", "lobby");
+
+          // Reset any surviving WebSocket attachments to lobby state
+          // so player data is consistent with the lobby round state
+          for (const ws of this.ctx.getWebSockets()) {
+            const player = ws.deserializeAttachment() as Player | null;
+            if (player && player.id) {
+              ws.serializeAttachment({
+                ...player,
+                status: "lobby",
+                role: null,
+                position: null,
+                direction: null,
+              });
+            }
+          }
+
+          // Notify surviving WebSocket clients that the round ended
+          // (with hibernation, clients can stay connected across restarts)
+          const roundEndPayload = JSON.stringify({
+            type: "round_end",
+            result: "cancelled",
+            scores: {},
+          });
+          const roster: Player[] = [];
+          for (const ws of this.ctx.getWebSockets()) {
+            const player = ws.deserializeAttachment() as Player | null;
+            if (player && player.id) {
+              roster.push(player);
+              try { ws.send(roundEndPayload); } catch { /* socket may be gone */ }
+            }
+          }
+          const lobbyPayload = JSON.stringify({
+            type: "lobby",
+            players: roster,
+          });
+          for (const ws of this.ctx.getWebSockets()) {
+            const player = ws.deserializeAttachment() as Player | null;
+            if (player && player.id) {
+              try { ws.send(lobbyPayload); } catch { /* socket may be gone */ }
+            }
+          }
+        }
+      } else {
+        this.roundState = storedState ?? "stopped";
+      }
+      this.activeConfig = await this.getMergedConfig();
+    });
+  }
+
+  async startServer(): Promise<{ ok: boolean; roundState: RoundState }> {
+    if (this.roundState === "stopped") {
+      // Complete all I/O before mutating in-memory state so a storage
+      // failure doesn't leave the object in an inconsistent state.
+      // Delete the alarm first — if this fails, storage still says "stopped"
+      // and no in-memory state has changed, so the object stays consistent.
+      const config = await this.getMergedConfig();
+      await this.ctx.storage.deleteAlarm();
+      await this.ctx.storage.put("roundState", "lobby");
+      this.roundState = "lobby";
+      this.activeConfig = config;
+    }
+    return { ok: true, roundState: this.roundState };
+  }
+
+  async stopServer(): Promise<{ ok: boolean; roundState: RoundState }> {
+    // Persist "stopped" to storage FIRST, before any side effects.
+    // If this write fails, no clients are disconnected and in-memory
+    // state is unchanged — the caller gets an error but the object
+    // remains consistent. This mirrors the storage-first pattern
+    // used in startServer() and startRound().
+    await this.ctx.storage.put("roundState", "stopped");
+
+    if (this.roundState === "playing") {
+      // Force-end the round with round_end broadcast
+      this.stopGameLoop();
+      const scores: Record<string, number> = {};
+      if (this.gameState) {
+        for (const [id, score] of this.gameState.scores) {
+          scores[id] = score;
+        }
+      }
+      this.broadcast({ type: "round_end", result: "ghosts", scores });
+      this.gameState = null;
+    }
+
+    this.roundState = "stopped";
+
+    // Disconnect all WebSocket clients
+    for (const ws of this.ctx.getWebSockets()) {
+      const player = ws.deserializeAttachment() as Player | null;
+      if (player && player.id) {
+        try {
+          ws.send(
+            JSON.stringify({
+              type: "error",
+              message: "Server stopped",
+            })
+          );
+        } catch {
+          // Socket may have dropped
+        }
+      }
+      ws.serializeAttachment(null);
+      try {
+        ws.close(1001, "Server stopped");
+      } catch {
+        // Already closed
+      }
+    }
+
+    return { ok: true, roundState: "stopped" };
+  }
+
+  async getStatus(): Promise<{ roundState: RoundState; players: { id: string; name: string; role: Role | null; status: string }[]; config: GameConfig }> {
+    const roster = this.getPlayerRoster();
+    const players = roster.map((p) => ({
+      id: p.id,
+      name: p.name,
+      role: p.role,
+      status: p.status,
+    }));
+    const config = await this.getMergedConfig();
+    return { roundState: this.roundState, players, config };
+  }
+
+  async stopRound(): Promise<{ ok: boolean; roundState: RoundState; error?: string }> {
+    if (this.roundState !== "playing") {
+      return { ok: false, roundState: this.roundState, error: "No active round" };
+    }
+    await this.endRound("ghosts"); // Force-end defaults to ghosts win
+    return { ok: true, roundState: this.roundState };
+  }
+
+  async updateConfig(overrides: Record<string, unknown>): Promise<{ ok: boolean; config: GameConfig; error?: string }> {
+    // Validate by attempting merge (throws on invalid values/unknown keys)
+    try {
+      // Load existing overrides, sanitize legacy bad fields, then merge new ones on top
+      const rawExisting = await this.ctx.storage.get<Partial<GameConfig>>("configOverrides") ?? {};
+      const existing = sanitizeOverrides(rawExisting);
+      const combined = { ...existing, ...overrides } as Partial<GameConfig>;
+      const merged = mergeConfig(DEFAULTS, combined);
+      await this.ctx.storage.put("configOverrides", combined);
+      // Only update activeConfig if no round is in progress;
+      // during play, config changes take effect at next round start
+      if (this.roundState !== "playing") {
+        this.activeConfig = merged;
+      }
+      return { ok: true, config: merged };
+    } catch (err) {
+      return { ok: false, config: this.activeConfig, error: (err as Error).message };
+    }
+  }
+
+  private async getMergedConfig(): Promise<GameConfig> {
+    const overrides = await this.ctx.storage.get<Partial<GameConfig>>("configOverrides");
+    if (!overrides) return { ...DEFAULTS };
+    // Sanitize stored overrides: drop any individual fields that fail validation
+    // (e.g. legacy values that violate rules added after they were persisted)
+    // rather than discarding the entire override blob.
+    const sanitized = sanitizeOverrides(overrides);
+    return { ...DEFAULTS, ...sanitized };
   }
 
   async fetch(request: Request): Promise<Response> {
+    // Reject connections when server is stopped
+    if (this.roundState === "stopped") {
+      const pair = new WebSocketPair();
+      const [client, server] = Object.values(pair);
+      this.ctx.acceptWebSocket(server);
+      server.send(
+        JSON.stringify({
+          type: "error",
+          message: "Server is stopped",
+        })
+      );
+      server.close(1008, "Server is stopped");
+      return new Response(null, { status: 101, webSocket: client });
+    }
+
     // Reject new connections during active round
     if (this.roundState === "playing") {
       const pair = new WebSocketPair();
@@ -74,15 +261,19 @@ export class GameRoom extends DurableObject<Env> {
     }
   }
 
-  startRound(): { success: boolean; error?: string } {
-    const roster = this.getPlayerRoster();
-
-    if (roster.length < 2) {
-      return { success: false, error: "Need at least 2 players to start" };
+  async startRound(): Promise<{ ok: boolean; error?: string }> {
+    if (this.roundState === "stopped") {
+      return { ok: false, error: "Server is stopped" };
     }
 
     if (this.roundState === "playing") {
-      return { success: false, error: "Round already in progress" };
+      return { ok: false, error: "Round already in progress" };
+    }
+
+    const roster = this.getPlayerRoster();
+
+    if (roster.length < 2) {
+      return { ok: false, error: "Need at least 2 players to start" };
     }
 
     // Parse and validate map
@@ -90,14 +281,23 @@ export class GameRoom extends DurableObject<Env> {
     const validation = validateMap(map);
     if (!validation.valid) {
       return {
-        success: false,
+        ok: false,
         error: `Invalid map: ${validation.errors.join(", ")}`,
       };
     }
 
+    // Load merged config and persist "playing" state before mutating
+    // in-memory state, so a storage failure doesn't leave a half-started round.
+    const config = await this.getMergedConfig();
+    await this.ctx.storage.put("roundState", "playing");
+
+    // All I/O succeeded — now commit in-memory state
+    this.activeConfig = config;
+    this.roundState = "playing";
+
     // Assign roles
     const playerIds = roster.map((p) => p.id);
-    const roles = assignRoles(playerIds, 1); // 1 pacman by default
+    const roles = assignRoles(playerIds, config.pacmanCount);
 
     // Find spawn positions
     const pacmanSpawns: { x: number; y: number }[] = [];
@@ -176,8 +376,6 @@ export class GameRoom extends DurableObject<Env> {
       tick: 0,
     };
 
-    this.roundState = "playing";
-
     // Build player info for round_start message
     const playerInfos = Array.from(players.values()).map((p) => ({
       id: p.id,
@@ -185,8 +383,6 @@ export class GameRoom extends DurableObject<Env> {
       role: p.role as Role,
       position: p.position as { x: number; y: number },
     }));
-
-    const config: GameConfig = { ...DEFAULTS };
 
     // Send round_start to each client with their specific role
     for (const ws of this.ctx.getWebSockets()) {
@@ -211,11 +407,11 @@ export class GameRoom extends DurableObject<Env> {
     // Start the game loop
     this.startGameLoop();
 
-    return { success: true };
+    return { ok: true };
   }
 
   private startGameLoop(): void {
-    const intervalMs = 1000 / DEFAULTS.tickRate;
+    const intervalMs = 1000 / this.activeConfig.tickRate;
     this.tickInterval = setInterval(() => {
       this.runTick();
     }, intervalMs);
@@ -231,17 +427,21 @@ export class GameRoom extends DurableObject<Env> {
   private runTick(): void {
     if (!this.gameState) return;
 
-    this.gameState = tick(this.gameState);
+    this.gameState = tick(this.gameState, this.activeConfig);
 
     const endCheck = checkRoundEnd(this.gameState);
     if (endCheck.ended) {
-      this.endRound(endCheck.result!);
+      void this.endRound(endCheck.result!).catch(() => {
+        // endRound rejection (e.g. storage failure) — round state is already
+        // cleaned up in memory by stopGameLoop/broadcastState; storage will
+        // reconcile on next cold start.
+      });
     } else {
       this.broadcastState();
     }
   }
 
-  private endRound(result: "pacman" | "ghosts"): void {
+  private async endRound(result: "pacman" | "ghosts"): Promise<void> {
     this.stopGameLoop();
 
     // Build final scores
@@ -260,7 +460,8 @@ export class GameRoom extends DurableObject<Env> {
     };
     this.broadcast(roundEndMsg);
 
-    // Reset to lobby
+    // Reset in-memory state first so the object is consistent
+    // regardless of whether the storage write succeeds
     this.roundState = "lobby";
     this.gameState = null;
 
@@ -281,6 +482,10 @@ export class GameRoom extends DurableObject<Env> {
 
     // Broadcast lobby update
     this.broadcast({ type: "lobby", players: this.getPlayerRoster() });
+
+    // Persist state — if this fails, in-memory state is already consistent
+    // and storage will reconcile on next cold start
+    await this.ctx.storage.put("roundState", this.roundState);
   }
 
   private broadcastState(): void {
@@ -314,7 +519,7 @@ export class GameRoom extends DurableObject<Env> {
       players,
       dots,
       powerPellets,
-      timeElapsed: state.tick / DEFAULTS.tickRate,
+      timeElapsed: state.tick / this.activeConfig.tickRate,
     };
 
     const payload = JSON.stringify(msg);
@@ -387,11 +592,14 @@ export class GameRoom extends DurableObject<Env> {
 
       // Check player cap
       const currentRoster = this.getPlayerRoster();
-      if (currentRoster.length >= MAX_PLAYERS) {
+      if (currentRoster.length >= this.activeConfig.maxPlayers) {
         ws.send(JSON.stringify({ type: "error", message: "Server is full" }));
         ws.close(1008, "Server is full");
         return;
       }
+
+      // Cancel any pending idle shutdown alarm since a player is joining
+      await this.ctx.storage.deleteAlarm();
 
       // Create player
       const id = crypto.randomUUID();
@@ -465,14 +673,14 @@ export class GameRoom extends DurableObject<Env> {
     reason: string,
     wasClean: boolean
   ): Promise<void> {
-    this.cleanupPlayer(ws, code, reason);
+    await this.cleanupPlayer(ws, code, reason);
   }
 
   async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
-    this.cleanupPlayer(ws, 1011, "WebSocket error");
+    await this.cleanupPlayer(ws, 1011, "WebSocket error");
   }
 
-  private cleanupPlayer(ws: WebSocket, code: number, reason: string): void {
+  private async cleanupPlayer(ws: WebSocket, code: number, reason: string): Promise<void> {
     const player = ws.deserializeAttachment() as Player | null;
     ws.serializeAttachment(null);
     try {
@@ -491,13 +699,14 @@ export class GameRoom extends DurableObject<Env> {
           // Check if all pacmans are now dead
           const endCheck = checkRoundEnd(this.gameState);
           if (endCheck.ended) {
-            this.endRound(endCheck.result!);
+            await this.endRound(endCheck.result!);
+            // After endRound, check if we need to schedule idle shutdown
+            await this.scheduleIdleShutdownIfEmpty();
             return;
           }
         }
-        // Remove disconnected player from game state
+        // Remove disconnected player from game state (keep scores for round_end)
         this.gameState.players.delete(player.id);
-        this.gameState.scores.delete(player.id);
         this.gameState.respawnTimers.delete(player.id);
       }
 
@@ -505,6 +714,30 @@ export class GameRoom extends DurableObject<Env> {
       if (this.roundState === "lobby") {
         this.broadcast({ type: "lobby", players: this.getPlayerRoster() });
       }
+
+      // Schedule idle shutdown if no players remain
+      await this.scheduleIdleShutdownIfEmpty();
+    }
+  }
+
+  private async scheduleIdleShutdownIfEmpty(): Promise<void> {
+    if (this.roundState === "stopped") return;
+    const roster = this.getPlayerRoster();
+    if (roster.length === 0) {
+      const delayMs = this.activeConfig.idleShutdownMinutes * 60 * 1000;
+      await this.ctx.storage.setAlarm(Date.now() + delayMs);
+    }
+  }
+
+  async getAlarm(): Promise<number | null> {
+    return this.ctx.storage.getAlarm();
+  }
+
+  async alarm(): Promise<void> {
+    // Race condition guard: only stop if still no players connected
+    const roster = this.getPlayerRoster();
+    if (roster.length === 0 && this.roundState !== "stopped") {
+      await this.stopServer();
     }
   }
 }

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { processMovement, tick, checkRoundEnd } from "../src/game-loop";
 import type { GameState, Player, GameMap } from "../src/types";
+import { DEFAULTS } from "../src/types";
 
 // A simple 5x5 map for testing:
 // #####
@@ -215,13 +216,13 @@ describe("processMovement", () => {
 describe("tick", () => {
   it("increments tick counter", () => {
     const state = makeGameState({ tick: 0 });
-    const result = tick(state);
+    const result = tick(state, DEFAULTS);
     expect(result.tick).toBe(1);
   });
 
   it("increments tick counter from non-zero", () => {
     const state = makeGameState({ tick: 42 });
-    const result = tick(state);
+    const result = tick(state, DEFAULTS);
     expect(result.tick).toBe(43);
   });
 
@@ -232,7 +233,7 @@ describe("tick", () => {
       tick: 0,
     });
 
-    const result = tick(state);
+    const result = tick(state, DEFAULTS);
     expect(result.tick).toBe(1);
     expect(result.players.get("p1")!.position).toEqual({ x: 2, y: 1 });
   });
@@ -244,7 +245,7 @@ describe("tick", () => {
       tick: 0,
     });
 
-    const result = tick(state);
+    const result = tick(state, DEFAULTS);
     // Original unchanged
     expect(state.tick).toBe(0);
     expect(state.players.get("p1")!.position).toEqual({ x: 1, y: 1 });
@@ -255,7 +256,7 @@ describe("tick", () => {
 
   it("handles empty player list", () => {
     const state = makeGameState({ tick: 5 });
-    const result = tick(state);
+    const result = tick(state, DEFAULTS);
     expect(result.tick).toBe(6);
     expect(result.players.size).toBe(0);
   });
@@ -283,7 +284,7 @@ describe("tick", () => {
       tick: 10,
     });
 
-    const result = tick(state);
+    const result = tick(state, DEFAULTS);
     expect(result.tick).toBe(11);
     expect(result.players.get("p1")!.position).toEqual({ x: 1, y: 2 });
     expect(result.players.get("p2")!.position).toEqual({ x: 3, y: 2 });
@@ -371,5 +372,44 @@ describe("checkRoundEnd", () => {
     const result = checkRoundEnd(state);
     expect(result.ended).toBe(true);
     expect(result.result).toBe("pacman");
+  });
+});
+
+describe("tick with custom config", () => {
+  it("uses custom powerPelletDuration when pacman eats pellet", () => {
+    const customConfig = { ...DEFAULTS, powerPelletDuration: 25 };
+    const pacman = makePlayer({ id: "p1", position: { x: 2, y: 1 }, direction: "right", role: "pacman" });
+    const ghost = makePlayer({ id: "g1", position: { x: 3, y: 3 }, role: "ghost", status: "active" });
+    // Place a power pellet at (3,1) where pacman will move to
+    const state = makeGameState({
+      players: new Map([["p1", pacman], ["g1", ghost]]),
+      powerPellets: new Set(["3,1"]),
+      tick: 0,
+    });
+
+    const result = tick(state, customConfig);
+    // Pacman moves to (3,1) where power pellet is
+    expect(result.players.get("p1")!.position).toEqual({ x: 3, y: 1 });
+    expect(result.powerPellets.has("3,1")).toBe(false);
+    // Timer set to 25 then decremented by 1 in updateTimers within same tick
+    expect(result.vulnerabilityTimer).toBe(24);
+    expect(result.players.get("g1")!.status).toBe("vulnerable");
+  });
+
+  it("uses custom ghostRespawnDelay when pacman eats ghost", () => {
+    const customConfig = { ...DEFAULTS, ghostRespawnDelay: 15 };
+    const pacman = makePlayer({ id: "p1", position: { x: 2, y: 1 }, direction: null, role: "pacman" });
+    const ghost = makePlayer({ id: "g1", position: { x: 2, y: 1 }, role: "ghost", status: "vulnerable" });
+    const state = makeGameState({
+      players: new Map([["p1", pacman], ["g1", ghost]]),
+      scores: new Map([["p1", 0], ["g1", 0]]),
+      vulnerabilityTimer: 50,
+      tick: 0,
+    });
+
+    const result = tick(state, customConfig);
+    expect(result.players.get("g1")!.status).toBe("respawning");
+    // Timer set to 15 then decremented by 1 in updateTimers within same tick
+    expect(result.respawnTimers.get("g1")).toBe(14);
   });
 });
