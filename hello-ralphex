@@ -11,7 +11,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --name)
             shift
-            if [[ $# -eq 0 || "$1" == --* ]]; then
+            if [[ $# -eq 0 || -z "$1" || "$1" == --* ]]; then
                 echo "error: --name requires a value" >&2
                 usage
                 exit 1

@@ -12,6 +12,7 @@
 # environment variables:
 #   OPENCODE_MODEL       - model in provider/model format, e.g. openai/gpt-4o (default: opencode default)
 #   OPENCODE_VERBOSE     - set to 1 to include tool execution events in output (default: 0)
+#   OPENCODE_ALLOW_ALL   - set to 1 to force wildcard permissions (default: 0)
 
 set -euo pipefail
 
@@ -39,16 +40,21 @@ fi
 # configurable via environment
 OPENCODE_MODEL="${OPENCODE_MODEL:-}"
 OPENCODE_VERBOSE="${OPENCODE_VERBOSE:-0}"
+OPENCODE_ALLOW_ALL="${OPENCODE_ALLOW_ALL:-0}"
 
-# enable auto-allow permissions for autonomous execution (equivalent to claude's
-# --dangerously-skip-permissions). uses OPENCODE_CONFIG_CONTENT which deep-merges
-# with existing config without replacing user settings.
-if [[ -z "${OPENCODE_CONFIG_CONTENT:-}" ]]; then
-    export OPENCODE_CONFIG_CONTENT='{"permission":{"*":"allow"}}'
-else
-    # merge allow-all into existing OPENCODE_CONFIG_CONTENT via jq
-    OPENCODE_CONFIG_CONTENT=$(echo "$OPENCODE_CONFIG_CONTENT" | jq -c '. * {"permission":{"*":"allow"}}')
-    export OPENCODE_CONFIG_CONTENT
+# allow-all permissions are opt-in via OPENCODE_ALLOW_ALL=1.
+if [[ "$OPENCODE_ALLOW_ALL" != "0" && "$OPENCODE_ALLOW_ALL" != "1" ]]; then
+    echo "warning: OPENCODE_ALLOW_ALL must be 0 or 1, got '$OPENCODE_ALLOW_ALL', defaulting to 0" >&2
+    OPENCODE_ALLOW_ALL=0
+fi
+
+if [[ "$OPENCODE_ALLOW_ALL" == "1" ]]; then
+    if [[ -z "${OPENCODE_CONFIG_CONTENT:-}" ]]; then
+        export OPENCODE_CONFIG_CONTENT='{"permission":{"*":"allow"}}'
+    else
+        OPENCODE_CONFIG_CONTENT=$(echo "$OPENCODE_CONFIG_CONTENT" | jq -c '. * {"permission":{"*":"allow"}}')
+        export OPENCODE_CONFIG_CONTENT
+    fi
 fi
 
 if [[ "$OPENCODE_VERBOSE" != "0" && "$OPENCODE_VERBOSE" != "1" ]]; then
@@ -111,6 +117,7 @@ opencode_pid=$!
 #
 # text content is passed verbatim through jq's .part.text — no truncation
 # or escaping changes, preserving signal strings like <<<RALPHEX:...>>> (R4).
+result_emitted=0
 while IFS= read -r line || [[ -n "$line" ]]; do
     translated=$(echo "$line" | jq -c --argjson verbose "$OPENCODE_VERBOSE" '
         if .type == "text" then
@@ -123,6 +130,9 @@ while IFS= read -r line || [[ -n "$line" ]]; do
         end
     ' 2>/dev/null) || true
     if [[ -n "$translated" ]]; then
+        if [[ "$translated" == '{"type":"result","result":""}' ]]; then
+            result_emitted=1
+        fi
         echo "$translated"
     elif ! echo "$line" | jq -e . >/dev/null 2>&1; then
         # pass non-JSON lines through so the executor's non-JSON fallback can see them;
@@ -145,7 +155,9 @@ if [[ -s "$stderr_file" ]]; then
 fi
 
 # emit fallback result event if opencode exited without step_finish
-echo '{"type":"result","result":""}'
+if [[ "$result_emitted" == "0" ]]; then
+    echo '{"type":"result","result":""}'
+fi
 
 # preserve opencode's exit code on failure (R9)
 exit "$opencode_exit"

@@ -57,6 +57,17 @@ fi
 assert_contains "$name_flag_value_is_flag_output" "--name requires a value" "--name flag-like value error message"
 
 set +e
+empty_name_output="$($TARGET --name "" 2>&1)"
+empty_name_exit=$?
+set -e
+if [[ $empty_name_exit -eq 0 ]]; then
+    echo "FAIL: empty --name value should fail"
+    exit 1
+fi
+assert_contains "$empty_name_output" "--name requires a value" "empty --name value error message"
+assert_contains "$empty_name_output" "Usage:" "empty --name usage output"
+
+set +e
 unknown_arg_output="$($TARGET --nope 2>&1)"
 unknown_arg_exit=$?
 set -e
