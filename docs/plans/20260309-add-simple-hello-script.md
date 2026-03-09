@@ -61,8 +61,8 @@
 - [x] verify test coverage meets project standard (80%+)
 
 ### Task 3: [Final] Update documentation
-- [ ] update README.md if needed with script usage examples
-- [ ] update project knowledge docs if new patterns discovered
+- [x] update README.md if needed with script usage examples
+- [x] update project knowledge docs if new patterns discovered
 
 *Note: ralphex automatically moves completed plans to `docs/plans/completed/`*
 
