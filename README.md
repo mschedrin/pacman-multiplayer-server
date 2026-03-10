@@ -122,10 +122,24 @@ npx wrangler dev --port 8000 --ip 0.0.0.0
 
 npm test           # Run all tests
 npm run test:watch # Run tests in watch mode
-npm run deploy     # Deploy to Cloudflare
 ```
 
 > **Note:** `npm run dev` uses `wrangler dev` which binds to `localhost` by default. Inside the devcontainer, use `npx wrangler dev --port 8000 --ip 0.0.0.0` so the server is reachable from the host.
+
+## Deployment
+
+Environment variables are stored in a `.env` file (not committed). Required variables:
+
+- `CLOUDFLARE_API_TOKEN` — API token with Workers Scripts (Edit), Durable Objects (Edit), and Account Settings (Read) permissions
+- `ADMIN_API_KEY` — Secret key for admin API authentication
+
+To deploy:
+
+```bash
+source .env
+npm run deploy
+echo $ADMIN_API_KEY | npx wrangler secret put ADMIN_API_KEY
+```
 
 ## Docs
 

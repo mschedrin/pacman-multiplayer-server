@@ -46,6 +46,12 @@ ENV GOPATH=/root/go
 ENV PATH="${GOROOT}/bin:${GOPATH}/bin:${PATH}"
 RUN go install github.com/umputun/ralphex/cmd/ralphex@latest
 
+# install fisher 
+curl -sL https://raw.githubusercontent.com/jorgebucaran/fisher/main/functions/fisher.fish | source && fisher install jorgebucaran/fisher
+
+# install bass for running bash commands in fish
+fisher install edc/bass
+
 # Starship prompt
 RUN curl -fsSL https://starship.rs/install.sh | sh -s -- -y
 
