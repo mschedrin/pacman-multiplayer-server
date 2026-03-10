@@ -523,7 +523,7 @@ describe("Round start flow", () => {
 
     // Config should be present
     expect(msgA.config).toBeDefined();
-    expect((msgA.config as { tickRate: number }).tickRate).toBe(20);
+    expect((msgA.config as { tickRate: number }).tickRate).toBe(3);
 
     for (const q of queues) q.ws.close();
   });

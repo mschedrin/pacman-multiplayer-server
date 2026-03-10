@@ -57,7 +57,7 @@ export interface GameConfig {
 }
 
 export const DEFAULTS: GameConfig = {
-  tickRate: 20,
+  tickRate: 3,
   powerPelletDuration: 100,
   ghostRespawnDelay: 60,
   pacmanCount: 1,

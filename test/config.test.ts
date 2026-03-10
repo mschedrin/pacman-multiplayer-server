@@ -5,7 +5,7 @@ import type { GameConfig } from "../src/types";
 
 describe("DEFAULTS", () => {
   it("has all expected keys with correct default values", () => {
-    expect(DEFAULTS.tickRate).toBe(20);
+    expect(DEFAULTS.tickRate).toBe(3);
     expect(DEFAULTS.powerPelletDuration).toBe(100);
     expect(DEFAULTS.ghostRespawnDelay).toBe(60);
     expect(DEFAULTS.pacmanCount).toBe(1);

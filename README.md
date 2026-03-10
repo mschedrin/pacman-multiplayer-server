@@ -66,7 +66,7 @@ curl http://localhost:8000/admin/status \
 curl -X PUT http://localhost:8000/admin/config \
   -H "Authorization: Bearer $ADMIN_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"pacmanCount": 2, "tickRate": 15}'
+  -d '{"pacmanCount": 2, "tickRate": 3}'
 ```
 
 ## Client Protocol (WebSocket, JSON)
